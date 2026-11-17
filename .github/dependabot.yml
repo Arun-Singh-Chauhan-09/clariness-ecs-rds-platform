@@ -1,5 +1,8 @@
 # Weekly dependency updates as pull requests. Every PR goes through the full CI
 # (tests, Trivy, Checkov), so an update is only merged when it is proven safe.
+# Minor and patch updates are grouped. Major versions (Terraform AWS provider 6,
+# Prometheus 3, Grafana 13, ...) change behaviour and are upgraded on purpose,
+# one at a time, so Dependabot does not open PRs for them.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -7,6 +10,9 @@ updates:
     schedule: { interval: weekly }
     groups:
       actions: { patterns: ["*"] }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: pip
     directory: /app
@@ -14,6 +20,9 @@ updates:
     groups:
       python-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: docker
     directories:
@@ -24,9 +33,17 @@ updates:
       - /observability/grafana
       - /observability/fluent-bit
     schedule: { interval: weekly }
+    groups:
+      base-images: { patterns: ["*"] }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   - package-ecosystem: terraform
     directories:
       - /terraform/bootstrap
       - /terraform/envs/staging
     schedule: { interval: weekly }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
