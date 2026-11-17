@@ -1,5 +1,5 @@
-# Checkov runs report-only in CI. Each skip below was reviewed; the reason is
-# next to it. Anything new shows up in the CI log for triage.
+# Checkov blocks the build in CI. Each skip below was reviewed and has its reason
+# next to it; a new finding fails CI until it is fixed or consciously skipped here.
 framework: [terraform]
 skip-check:
   - CKV_AWS_158    # CloudWatch log groups use AWS-managed encryption; no PHI is logged (synthetic data)
@@ -23,3 +23,16 @@ skip-check:
   - CKV_AWS_336    # ECS read-only root filesystem: Grafana/Loki/Prometheus need writable paths
   - CKV_AWS_136    # ECR uses KMS with the AWS-managed key
   - CKV_AWS_51     # ECR tags ARE immutable; false positive on for_each repositories
+  # --- added with the security hardening (Nov 2026) ---
+  - CKV_AWS_35     # CloudTrail logs use SSE-S3 in a private, versioned, TLS-only bucket; a CMK is the next step in an Organization
+  - CKV2_AWS_10    # CloudTrail -> CloudWatch Logs integration: not needed for a single-account demo; GuardDuty covers threat detection
+  - CKV_AWS_252    # CloudTrail SNS notifications: not needed
+  - CKV2_AWS_31    # WAF logging: CloudWatch metrics and sampled requests are enabled; full logging adds cost for a demo
+  - CKV_AWS_111    # IAM write without constraints: the CI deploy role manages these services; scoped by service list + region condition
+  - CKV_AWS_109    # IAM permissions management without constraints: same deploy role; IAM itself is limited to roles named referrals-*
+  - CKV_AWS_355    # "*" resource for restrictable actions: deploy role (see above) and ssmmessages for ECS Exec, which has no resource ARNs
+  - CKV_AWS_356    # see CKV_AWS_355
+  - CKV_AWS_290    # see CKV_AWS_111
+  - CKV_AWS_289    # see CKV_AWS_109
+  - CKV_AWS_288    # data exfiltration without constraints: deploy role reads its own secrets for the smoke test
+  - CKV_AWS_287    # credentials exposure without constraints: see CKV_AWS_288

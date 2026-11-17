@@ -1,0 +1,13 @@
+# Secret scanning config (CI job "secret scan"). Default rules plus a narrow
+# allowlist for throwaway credentials that only exist in local/CI containers.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Local docker compose and CI test credentials, documented as non-secret"
+paths = [
+  '''docker-compose\.yml''',
+  '''\.github/workflows/ci\.yml''',
+  '''Makefile''',
+  '''app/tests/.*''',
+]

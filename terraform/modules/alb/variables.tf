@@ -47,3 +47,21 @@ variable "alarm_sns_topic_arn" {
   type        = string
   default     = ""
 }
+
+variable "waf_enabled" {
+  description = "Attach an AWS WAF web ACL (managed rule groups + per-IP rate limit)."
+  type        = bool
+  default     = true
+}
+
+variable "rate_limit_per_5min" {
+  description = "Requests per 5 minutes allowed from one IP before WAF blocks it."
+  type        = number
+  default     = 2000
+}
+
+variable "blocked_paths" {
+  description = "Paths answered with 404 at the ALB (internal endpoints that must not be public)."
+  type        = list(string)
+  default     = ["/metrics", "/metrics/*", "/docs", "/openapi.json"]
+}

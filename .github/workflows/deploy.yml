@@ -78,8 +78,12 @@ jobs:
       - name: 2. Apply desired state (waits for steady state)
         run: terraform apply -input=false -auto-approve -var "image_tag=$TAG" -var "alert_email=${{ vars.ALERT_EMAIL }}"
 
-      - name: 3. Smoke test
-        run: ../../../scripts/smoke-test.sh "$(terraform output -raw api_base_url)" "$TAG"
+      - name: 3. Smoke test (auth enforced, write + read, /metrics not public)
+        run: |
+          API_KEY="$(aws secretsmanager get-secret-value --secret-id "$(terraform output -raw api_keys_secret_arn)" \
+            --query SecretString --output text | cut -d, -f1)"
+          echo "::add-mask::$API_KEY"
+          API_KEY="$API_KEY" ../../../scripts/smoke-test.sh "$(terraform output -raw api_base_url)" "$TAG"
 
       - name: Deployment summary
         if: always()

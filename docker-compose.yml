@@ -5,8 +5,11 @@
 #                   http://localhost:9093      (Alertmanager)
 name: referrals
 
+# Local-only credentials. In AWS: master password from the RDS-managed secret
+# (migrations only), IAM auth tokens for the API, API keys from Secrets Manager.
 x-db-env: &db-env
   DATABASE_URL: postgresql+psycopg://referrals:referrals@postgres:5432/referrals
+  APP_DB_PASSWORD: local-app-password
 
 services:
   postgres:
@@ -34,10 +37,17 @@ services:
   api:
     build: ./app
     environment:
+      # The API uses the least-privileged role, not the owner (migration 0003).
       # API_DATABASE_URL lets drill 04 start the API against a wrong database.
-      DATABASE_URL: ${API_DATABASE_URL:-postgresql+psycopg://referrals:referrals@postgres:5432/referrals}
+      DATABASE_URL: ${API_DATABASE_URL:-postgresql+psycopg://referrals_app:local-app-password@postgres:5432/referrals}
       APP_VERSION: ${APP_VERSION:-local}
       DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      API_KEYS: local-dev-key-change-me
+      ENABLE_DOCS: "true"
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
     ports: ["8000:8000"]
     depends_on:
       migrate: { condition: service_completed_successfully }

@@ -12,6 +12,10 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
 
+# Must be set before referrals.auth is imported (keys are loaded at import time).
+TEST_API_KEY = "test-key-0123456789abcdef"
+os.environ.setdefault("API_KEYS", TEST_API_KEY)
+
 if not os.getenv("DATABASE_URL"):
     # No database: collect nothing instead of failing on import of referrals.db.
     print("DATABASE_URL not set; start Postgres with `make up` (skipping DB tests)")
@@ -45,6 +49,17 @@ def clean_tables():
 
 @pytest.fixture
 def client():
+    from fastapi.testclient import TestClient
+
+    from referrals.main import app
+
+    with TestClient(app, headers={"X-API-Key": TEST_API_KEY}) as c:
+        yield c
+
+
+@pytest.fixture
+def anon_client():
+    """A client without an API key."""
     from fastapi.testclient import TestClient
 
     from referrals.main import app

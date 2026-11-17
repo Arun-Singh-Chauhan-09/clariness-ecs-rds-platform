@@ -24,11 +24,11 @@ def test_repo_migrations_are_safe():
 
 
 def test_pending_contract_migration_is_approved():
-    assert rules(ROOT / "app/migrations/pending/0003_contract_drop_title.py") == []
+    assert rules(ROOT / "app/migrations/pending/0004_contract_drop_title.py") == []
 
 
 def test_drill_rename_is_blocked():
-    assert rules(ROOT / "drills/unsafe_0003_rename_title.py") == ["rename_column"]
+    assert rules(ROOT / "drills/unsafe_9001_rename_title.py") == ["rename_column"]
 
 
 @pytest.mark.parametrize(

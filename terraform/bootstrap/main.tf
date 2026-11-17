@@ -173,11 +173,45 @@ resource "aws_iam_role" "deploy" {
   assume_role_policy = data.aws_iam_policy_document.deploy_trust.json
 }
 
-# PowerUserAccess covers everything except IAM. IAM is granted separately and
-# only for roles/policies whose names start with "referrals-".
-resource "aws_iam_role_policy_attachment" "deploy_poweruser" {
-  role       = aws_iam_role.deploy.name
-  policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
+# Least privilege for the deploy role: only the services this project uses,
+# only in the primary and DR regions. (Previously PowerUserAccess, which allows
+# almost every AWS service.) IAM is granted separately below and only for roles
+# whose names start with "referrals-".
+data "aws_iam_policy_document" "deploy_services" {
+  statement {
+    sid = "ProjectServicesInProjectRegions"
+    actions = [
+      "ec2:*", "ecs:*", "ecr:*", "rds:*", "elasticloadbalancing:*", "wafv2:*",
+      "logs:*", "cloudwatch:*", "sns:*", "secretsmanager:*", "kms:*",
+      "servicediscovery:*", "application-autoscaling:*", "acm:DescribeCertificate", "acm:ListCertificates",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.region, var.dr_region]
+    }
+  }
+
+  statement {
+    sid       = "ProjectBuckets"
+    actions   = ["s3:*"]
+    resources = ["arn:aws:s3:::referrals-*", "arn:aws:s3:::referrals-*/*"]
+  }
+
+  # Global services: Cloud Map private DNS manages a Route 53 hosted zone; the
+  # cost budget lives in the Budgets API.
+  statement {
+    sid       = "GlobalServices"
+    actions   = ["route53:*", "budgets:*", "sts:GetCallerIdentity"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "deploy_services" {
+  name   = "project-services"
+  role   = aws_iam_role.deploy.id
+  policy = data.aws_iam_policy_document.deploy_services.json
 }
 
 data "aws_iam_policy_document" "deploy_iam" {
@@ -213,4 +247,138 @@ resource "aws_iam_role_policy" "deploy_state" {
   name   = "terraform-state"
   role   = aws_iam_role.deploy.id
   policy = data.aws_iam_policy_document.state_access.json
+}
+
+# --- Account security baseline -----------------------------------------------------------
+# For a fresh account. In an AWS Organization these are usually enabled centrally:
+# set enable_account_security_baseline = false then.
+
+resource "aws_guardduty_detector" "this" {
+  count  = var.enable_account_security_baseline ? 1 : 0
+  enable = true
+}
+
+resource "aws_s3_bucket" "cloudtrail" {
+  count         = var.enable_account_security_baseline ? 1 : 0
+  bucket_prefix = "referrals-cloudtrail-"
+}
+
+resource "aws_s3_bucket_public_access_block" "cloudtrail" {
+  count                   = var.enable_account_security_baseline ? 1 : 0
+  bucket                  = aws_s3_bucket.cloudtrail[0].id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_versioning" "cloudtrail" {
+  count  = var.enable_account_security_baseline ? 1 : 0
+  bucket = aws_s3_bucket.cloudtrail[0].id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "cloudtrail" {
+  count  = var.enable_account_security_baseline ? 1 : 0
+  bucket = aws_s3_bucket.cloudtrail[0].id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {
+  count  = var.enable_account_security_baseline ? 1 : 0
+  bucket = aws_s3_bucket.cloudtrail[0].id
+  rule {
+    id     = "expire-after-1-year"
+    status = "Enabled"
+    filter {}
+    expiration {
+      days = 365
+    }
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+  }
+}
+
+locals {
+  trail_name = "referrals-account-trail"
+  trail_arn  = "arn:aws:cloudtrail:${var.region}:${data.aws_caller_identity.current.account_id}:trail/${local.trail_name}"
+}
+
+data "aws_iam_policy_document" "cloudtrail_bucket" {
+  count = var.enable_account_security_baseline ? 1 : 0
+
+  statement {
+    sid       = "AWSCloudTrailAclCheck"
+    actions   = ["s3:GetBucketAcl"]
+    resources = [aws_s3_bucket.cloudtrail[0].arn]
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceArn"
+      values   = [local.trail_arn]
+    }
+  }
+
+  statement {
+    sid       = "AWSCloudTrailWrite"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.cloudtrail[0].arn}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"]
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceArn"
+      values   = [local.trail_arn]
+    }
+  }
+
+  statement {
+    sid       = "DenyInsecureTransport"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.cloudtrail[0].arn, "${aws_s3_bucket.cloudtrail[0].arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "cloudtrail" {
+  count  = var.enable_account_security_baseline ? 1 : 0
+  bucket = aws_s3_bucket.cloudtrail[0].id
+  policy = data.aws_iam_policy_document.cloudtrail_bucket[0].json
+}
+
+resource "aws_cloudtrail" "this" {
+  count                         = var.enable_account_security_baseline ? 1 : 0
+  name                          = local.trail_name
+  s3_bucket_name                = aws_s3_bucket.cloudtrail[0].id
+  is_multi_region_trail         = true
+  include_global_service_events = true
+  enable_log_file_validation    = true
+
+  depends_on = [aws_s3_bucket_policy.cloudtrail]
 }

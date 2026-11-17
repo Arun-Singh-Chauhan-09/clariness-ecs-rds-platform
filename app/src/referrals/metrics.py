@@ -7,13 +7,13 @@ import time
 from prometheus_client import REGISTRY, Counter, Histogram
 from prometheus_client.core import GaugeMetricFamily
 from prometheus_client.registry import Collector
-from sqlalchemy import create_engine, pool, text
+from sqlalchemy import pool, text
 
-from .db import database_url, engine
+from .db import engine, make_engine
 
 # Separate, unpooled engine for the scrape-time probe, so a saturated app pool
 # shows up as pool saturation and not as "database down".
-_probe_engine = create_engine(database_url(), poolclass=pool.NullPool)
+_probe_engine = make_engine(poolclass=pool.NullPool)
 
 HTTP_REQUESTS = Counter(
     "http_requests_total",

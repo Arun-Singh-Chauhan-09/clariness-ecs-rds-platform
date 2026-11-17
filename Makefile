@@ -1,5 +1,7 @@
 SHELL := /bin/bash
 PYTHON ?= python3
+export API_KEY ?= local-dev-key-change-me
+export APP_DB_PASSWORD ?= local-app-password
 TEST_DB := postgresql+psycopg://referrals:referrals@localhost:5432/referrals_test
 TF_DIRS := terraform/bootstrap terraform/modules/network terraform/modules/alb terraform/modules/rds-postgres/examples/basic \
            terraform/modules/ecs-service terraform/modules/observability terraform/envs/staging
@@ -9,7 +11,7 @@ TF_DIRS := terraform/bootstrap terraform/modules/network terraform/modules/alb t
 
 up:                      ## Start the full local stack
 	docker compose up -d --build
-	@echo "API http://localhost:8000/docs | Grafana http://localhost:3000 (admin/admin) | Prometheus :9090 | Alertmanager :9093"
+	@echo "API http://localhost:8000/docs (X-API-Key: $(API_KEY)) | Grafana http://localhost:3000 (admin/admin) | Prometheus :9090 | Alertmanager :9093"
 
 down:
 	docker compose down -v
@@ -49,14 +51,14 @@ tf-validate:
 
 # --- Drills (local versions; AWS versions are in docs/drills) -----------------
 drill-01-break:          ## Unsafe rename migration: old code starts failing
-	cp drills/unsafe_0003_rename_title.py app/migrations/versions/0003_rename_title.py
+	cp drills/unsafe_9001_rename_title.py app/migrations/versions/9001_rename_title.py
 	-$(PYTHON) scripts/check_migrations.py app/migrations/versions
 	docker compose run --rm -v $$PWD/app/migrations:/app/migrations migrate alembic upgrade head
 	@echo "Now: $(PYTHON) scripts/loadtest.py --duration 480 --study-writes 0.2  -> POST /studies returns 500. Watch Grafana and 'make logs'."
 
 drill-01-fix:
-	docker compose run --rm -v $$PWD/app/migrations:/app/migrations migrate alembic downgrade 0002
-	rm app/migrations/versions/0003_rename_title.py
+	docker compose run --rm -v $$PWD/app/migrations:/app/migrations migrate alembic downgrade 0003
+	rm app/migrations/versions/9001_rename_title.py
 
 drill-04-break:          ## Deploy a release that cannot reach its database
 	API_DATABASE_URL=postgresql+psycopg://referrals:referrals@postgres:5432/does_not_exist docker compose up -d api

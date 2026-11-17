@@ -158,3 +158,99 @@ resource "aws_cloudwatch_metric_alarm" "latency_p95" {
   alarm_actions       = [var.alarm_sns_topic_arn]
   ok_actions          = [var.alarm_sns_topic_arn]
 }
+
+# --- Internal endpoints are not public ------------------------------------------------
+# /metrics is for Prometheus inside the VPC only. Defence in depth: the app also
+# disables /docs unless ENABLE_DOCS=true.
+resource "aws_lb_listener_rule" "block_internal_paths" {
+  listener_arn = local.https ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
+  priority     = 10
+
+  condition {
+    path_pattern {
+      values = var.blocked_paths
+    }
+  }
+
+  action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "application/json"
+      status_code  = "404"
+      message_body = "{\"detail\":\"Not Found\"}"
+    }
+  }
+}
+
+# --- WAF ---------------------------------------------------------------------------------
+locals {
+  waf_managed_rules = {
+    AWSManagedRulesCommonRuleSet          = 10
+    AWSManagedRulesKnownBadInputsRuleSet  = 20
+    AWSManagedRulesSQLiRuleSet            = 30
+    AWSManagedRulesAmazonIpReputationList = 40
+  }
+}
+
+resource "aws_wafv2_web_acl" "this" {
+  count = var.waf_enabled ? 1 : 0
+  name  = "${var.name}-waf"
+  scope = "REGIONAL"
+
+  default_action {
+    allow {}
+  }
+
+  rule {
+    name     = "rate-limit-per-ip"
+    priority = 1
+    action {
+      block {}
+    }
+    statement {
+      rate_based_statement {
+        limit              = var.rate_limit_per_5min
+        aggregate_key_type = "IP"
+      }
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.name}-rate-limit"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  dynamic "rule" {
+    for_each = local.waf_managed_rules
+    content {
+      name     = rule.key
+      priority = rule.value
+      override_action {
+        none {}
+      }
+      statement {
+        managed_rule_group_statement {
+          name        = rule.key
+          vendor_name = "AWS"
+        }
+      }
+      visibility_config {
+        cloudwatch_metrics_enabled = true
+        metric_name                = "${var.name}-${rule.key}"
+        sampled_requests_enabled   = true
+      }
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "${var.name}-waf"
+    sampled_requests_enabled   = true
+  }
+}
+
+resource "aws_wafv2_web_acl_association" "this" {
+  count        = var.waf_enabled ? 1 : 0
+  resource_arn = aws_lb.this.arn
+  web_acl_arn  = aws_wafv2_web_acl.this[0].arn
+}

@@ -65,6 +65,7 @@ Full write-up with deployment, alerting and recovery flows: **[docs/architecture
 | **Backup and disaster recovery** | PITR (7 days), cross-region backup replication, a scripted restore drill that measures RTO/RPO |
 | **High availability** | 2 AZs, Multi-AZ RDS, 2+ tasks behind the ALB, failover drill |
 | **Safe database migrations** | expand/contract, a CI guard that blocks unsafe migrations, lock timeouts, migrate-before-deploy |
+| Security | API keys, least-privileged DB role with IAM auth (no app password), WAF, KMS everywhere, private subnets, OIDC, Trivy/Checkov/gitleaks gates: [docs/security.md](docs/security.md) |
 | Cloud cost efficiency | Fargate Spot for observability, one NAT gateway, S3 gateway endpoint, ECR lifecycle, AWS Budget alert |
 | Explaining technical trade-offs | `docs/adr/`: ECS vs EKS, self-hosted vs managed observability, GitOps without ArgoCD |
 
@@ -87,6 +88,12 @@ make load      # 2 minutes of traffic
 | Prometheus | http://localhost:9090/alerts |
 | Alertmanager | http://localhost:9093 |
 | Alert notifications | `make logs` (the `alert-sink` container prints them) |
+
+Business endpoints need an API key (locally `local-dev-key-change-me`, set in `docker-compose.yml`):
+```bash
+curl -H "X-API-Key: local-dev-key-change-me" localhost:8000/studies
+```
+`make seed` and `make load` send it automatically.
 
 Tests run against a real Postgres: `make test`. Config checks: `make promtool`, `make check-migrations`.
 
@@ -120,9 +127,13 @@ cp backend.hcl.example backend.hcl && cp terraform.tfvars.example terraform.tfva
 terraform init -backend-config=backend.hcl
 terraform apply -target=aws_ecr_repository.this          # registries first
 ../../../scripts/build-push.sh v0                        # all six images, tag v0
-terraform apply -var image_tag=v0
+# The API logs in as referrals_app, which migration 0003 creates, so the
+# database and the migration task come before the API service:
+terraform apply -var image_tag=v0 -target=module.migrate -target=aws_vpc_security_group_ingress_rule.db_from_migrate
 ../../../scripts/run-migration.sh "$(terraform output -raw ecr_registry)/referrals-api:v0"
-../../../scripts/smoke-test.sh "$(terraform output -raw api_base_url)"
+terraform apply -var image_tag=v0                        # everything else
+export API_KEY="$(aws secretsmanager get-secret-value --secret-id "$(terraform output -raw api_keys_secret_arn)" --query SecretString --output text | cut -d, -f1)"
+../../../scripts/smoke-test.sh "$(terraform output -raw api_base_url)" v0
 ```
 After that, every merge to `main` deploys through `deploy.yml`.
 
@@ -130,6 +141,7 @@ After that, every merge to `main` deploys through `deploy.yml`.
 | Task | Command |
 |---|---|
 | Grafana / Prometheus / Alertmanager (private, via ECS Exec) | `scripts/port-forward.sh grafana` |
+| Get the API key | `aws secretsmanager get-secret-value --secret-id "$(terraform output -raw api_keys_secret_arn)" --query SecretString --output text` |
 | Run a command next to the database | `scripts/run-oneoff.sh python -m referrals.verify_restore` |
 | Migrations by hand | `scripts/run-migration.sh <image-uri>` |
 | What version is live | `scripts/current-image-tag.sh` |
@@ -238,6 +250,7 @@ terraform/envs/staging/   the environment, composed from the modules
 scripts/                  migration runner, smoke test, DR + failover drills, port-forward, load/seed
 drills/                   the deliberately unsafe migration used in drill 01
 docs/architecture.md      architecture: request, deploy, alerting and recovery flows
+docs/security.md          security controls by layer, and known gaps
 docs/adr/                 architecture decisions and trade-offs
 docs/runbooks/            migrations, DR restore, alert response
 docs/drills/              drill plans and results
@@ -250,7 +263,8 @@ docs/drills/              drill plans and results
 | Migration guard and its tests | run and passing |
 | App, migrations, tests, compose stack | running locally; 10 app tests (real Postgres) + 17 guard tests pass |
 | Terraform | `fmt` clean, `validate` passes for all 7 roots/modules; not yet applied |
-| Drills | plans written; "Observed" sections are filled in only after a real run |
+| Drills | 01 and 04 run locally with written results; 02, 03, 05 planned |
+| Security hardening | API keys, least-privileged DB role, read-only containers, WAF, scoped deploy role, CloudTrail/GuardDuty, Checkov/gitleaks gates (see docs/security.md) |
 
 ## Known limitations / next steps
 - HTTPS needs a domain and ACM certificate (`certificate_arn`); the demo serves HTTP.

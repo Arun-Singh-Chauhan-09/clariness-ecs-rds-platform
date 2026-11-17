@@ -5,6 +5,7 @@
 # Requires db_multi_az = true.
 # Usage: scripts/rds-failover-drill.sh
 source "$(dirname "$0")/lib.sh"
+: "${API_KEY:?export API_KEY first (aws secretsmanager get-secret-value ... api_keys_secret_arn)}"
 
 BASE="$(tfo api_base_url)"
 DB="$(tfo db_instance_id)"
@@ -18,7 +19,7 @@ AZ_BEFORE="$(aws rds describe-db-instances --db-instance-identifier "$DB" --quer
 
 probe() {
   while true; do
-    code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$BASE/studies?limit=1" || echo 000)"
+    code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' -H "X-API-Key: $API_KEY" "$BASE/studies?limit=1" || echo 000)"
     echo "$(date +%s.%N) $code" >> "$PROBE_LOG"
     sleep 0.5
   done

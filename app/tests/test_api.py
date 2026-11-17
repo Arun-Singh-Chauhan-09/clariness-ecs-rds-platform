@@ -12,7 +12,7 @@ def test_health_and_readiness(client):
     assert client.get("/healthz").json()["status"] == "ok"
     ready = client.get("/readyz")
     assert ready.status_code == 200
-    assert ready.json()["schema_revision"] == "0002"
+    assert ready.json()["schema_revision"] == "0003"
 
 
 def test_create_and_get_study(client):

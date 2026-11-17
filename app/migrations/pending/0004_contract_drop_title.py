@@ -5,17 +5,17 @@ NOT in migrations/versions on purpose. Promote this file only when:
      (check: aws ecs describe-services -> only one deployment, PRIMARY), and
   2. the app code has stopped writing `title` (remove it from the INSERT in
      src/referrals/main.py in the same PR that promotes this file).
-Then: git mv migrations/pending/0003_contract_drop_title.py migrations/versions/
+Then: git mv migrations/pending/0004_contract_drop_title.py migrations/versions/
 
-Revision ID: 0003
-Revises: 0002
+Revision ID: 0004
+Revises: 0003
 Create Date: 2026-11-17
 """
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0003"
-down_revision = "0002"
+revision = "0004"
+down_revision = "0003"
 branch_labels = None
 depends_on = None
 

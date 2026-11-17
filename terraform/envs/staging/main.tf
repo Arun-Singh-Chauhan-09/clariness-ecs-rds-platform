@@ -142,6 +142,8 @@ module "rds" {
 }
 
 locals {
+  app_db_user = "referrals_app" # created by migration 0003
+
   db_environment = {
     DB_HOST     = module.rds.address
     DB_PORT     = tostring(module.rds.port)
@@ -160,12 +162,38 @@ resource "aws_cloudwatch_log_group" "api_app" {
   retention_in_days = 14
 }
 
+data "aws_caller_identity" "current" {}
+
 data "aws_iam_policy_document" "api_task" {
   # FireLens sidecar ships app logs to this log group (as well as to Loki).
   statement {
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]
     resources = ["${aws_cloudwatch_log_group.api_app.arn}:*"]
   }
+  # IAM database authentication, for this one database user only.
+  statement {
+    actions   = ["rds-db:connect"]
+    resources = ["arn:aws:rds-db:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:dbuser:${module.rds.resource_id}/${local.app_db_user}"]
+  }
+}
+
+# --- API keys ----------------------------------------------------------------------------
+# One generated key to start with. Rotation: add a second key (comma-separated),
+# roll the service, move clients over, then remove the old key.
+resource "random_password" "api_key" {
+  length  = 40
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "api_keys" {
+  name_prefix             = "${local.name}-api-keys-"
+  description             = "Comma-separated API keys accepted by referrals-api (X-API-Key header)"
+  recovery_window_in_days = 7
+}
+
+resource "aws_secretsmanager_secret_version" "api_keys" {
+  secret_id     = aws_secretsmanager_secret.api_keys.id
+  secret_string = random_password.api_key.result
 }
 
 module "api" {
@@ -181,14 +209,23 @@ module "api" {
   cpu            = 256
   memory         = 512
 
+  # The API connects as the least-privileged role `referrals_app` (migration
+  # 0003) with IAM auth tokens: it never receives the master password.
   environment = merge(local.db_environment, {
+    DB_USER      = local.app_db_user
+    DB_IAM_AUTH  = "true"
+    AWS_REGION   = data.aws_region.current.name
     APP_VERSION  = var.image_tag
     DB_POOL_SIZE = tostring(var.api_db_pool_size)
   })
-  secrets                = local.db_secrets
-  execution_secret_arns  = [module.rds.master_user_secret_arn]
-  execution_kms_key_arns = [module.rds.kms_key_arn]
-  task_role_policy_json  = data.aws_iam_policy_document.api_task.json
+  secrets               = { API_KEYS = aws_secretsmanager_secret.api_keys.arn }
+  execution_secret_arns = [aws_secretsmanager_secret.api_keys.arn]
+  task_role_policy_json = data.aws_iam_policy_document.api_task.json
+
+  # Hardening: nothing in the image is writable, and no interactive shell into
+  # production tasks (ECS Exec stays enabled for the observability services only).
+  readonly_root_filesystem = true
+  enable_execute_command   = false
 
   health_check = {
     command = ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status == 200 else 1)\""]
@@ -240,6 +277,9 @@ module "migrate" {
   secrets                = local.db_secrets
   execution_secret_arns  = [module.rds.master_user_secret_arn]
   execution_kms_key_arns = [module.rds.kms_key_arn]
+
+  readonly_root_filesystem = true
+  enable_execute_command   = false
 }
 
 # --- Database access rules -------------------------------------------------------------------

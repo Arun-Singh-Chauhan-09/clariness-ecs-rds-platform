@@ -4,10 +4,12 @@
 import argparse
 import hashlib
 import json
+import os
 import random
 import urllib.error
 import urllib.request
 
+API_KEY = os.environ.get("API_KEY", "")
 STUDIES = [
     ("ONC-2026-014", "Phase II study in advanced solid tumours", "II", "Oncology"),
     ("CAR-2026-007", "Phase III heart-failure outcomes study", "III", "Cardiology"),
@@ -23,7 +25,7 @@ def call(base: str, method: str, path: str, body: dict | None = None):
         base + path,
         method=method,
         data=json.dumps(body).encode() if body is not None else None,
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-API-Key": API_KEY},
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:

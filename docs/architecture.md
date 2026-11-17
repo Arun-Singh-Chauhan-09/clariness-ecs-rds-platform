@@ -68,16 +68,19 @@ sequenceDiagram
   participant T as API task (Fargate)
   participant D as RDS primary
   C->>A: POST /studies/{id}/referrals
-  A->>T: forward (private subnet, SG allows ALB only)
-  T->>D: INSERT (TLS required, pooled connection)
+  A->>T: WAF checks, then forward (private subnet, SG allows ALB only)
+  T->>T: check X-API-Key
+  T->>D: INSERT as referrals_app (IAM token, TLS)
   D-->>T: row
   T-->>A: 201 Created
   A-->>C: 201 Created
   Note over T: metrics: http_requests_total, latency histogram, db_pool_*<br/>logs: FireLens to Loki and CloudWatch
 ```
 
+- AWS WAF filters requests at the ALB (managed rules + per-IP rate limit), and the ALB answers `/metrics` and `/docs` with 404.
+- Every business endpoint requires an `X-API-Key`; the key's fingerprint is logged for audit.
 - Tasks have no public IP. The API security group accepts traffic only from the ALB and from Prometheus.
-- The DB password is injected by ECS from the RDS-managed Secrets Manager secret. It is never in Terraform state as plain config or in the image.
+- The API connects as `referrals_app` (read/write rows only) using a 15-minute IAM auth token: it has no database password. Only the migration task gets the master password, injected by ECS from the RDS-managed secret. See [security.md](security.md).
 - `pool_pre_ping` discards connections killed by a Multi-AZ failover, so tasks recover without a restart.
 
 ## 3. A deployment (GitOps-style, no ArgoCD)

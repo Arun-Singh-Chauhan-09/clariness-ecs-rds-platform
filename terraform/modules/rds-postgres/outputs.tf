@@ -57,3 +57,8 @@ output "parameter_group_name" {
   description = "DB parameter group (applied to restored instances in DR drills)."
   value       = aws_db_parameter_group.this.name
 }
+
+output "resource_id" {
+  description = "DbiResourceId, used in rds-db:connect IAM policies for IAM database authentication."
+  value       = aws_db_instance.this.resource_id
+}

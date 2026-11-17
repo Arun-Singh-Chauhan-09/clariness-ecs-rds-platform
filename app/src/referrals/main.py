@@ -18,13 +18,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from . import metrics
+from .auth import require_api_key
 from .db import engine
 
 logging.basicConfig(
@@ -108,7 +109,27 @@ async def lifespan(_: FastAPI):
     log.info("shutdown complete")
 
 
-app = FastAPI(title="referrals-api", version=APP_VERSION, lifespan=lifespan)
+# Interactive API docs are off unless explicitly enabled (local compose turns them on).
+_docs = os.getenv("ENABLE_DOCS", "false") == "true"
+app = FastAPI(
+    title="referrals-api",
+    version=APP_VERSION,
+    lifespan=lifespan,
+    docs_url="/docs" if _docs else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if _docs else None,
+)
+
+# Every business endpoint requires an API key; health and metrics do not
+# (/metrics is blocked at the ALB and only reachable from Prometheus' SG).
+api = APIRouter(dependencies=[Depends(require_api_key)])
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+}
 
 
 @app.middleware("http")
@@ -118,6 +139,10 @@ async def observe(request: Request, call_next):
     try:
         response: Response = await call_next(request)
         status = response.status_code
+        for name, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        if request.headers.get("x-forwarded-proto") == "https":
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
     finally:
         elapsed = time.perf_counter() - start
@@ -128,12 +153,14 @@ async def observe(request: Request, call_next):
         if route_label not in ("/metrics", "/healthz"):
             metrics.HTTP_REQUESTS.labels(request.method, route_label, str(status)).inc()
             metrics.HTTP_LATENCY.labels(request.method, route_label).observe(elapsed)
+            # key_id is a non-secret fingerprint of the API key: an access audit trail.
             log.info(
-                "method=%s route=%s status=%s duration_ms=%.1f",
+                "method=%s route=%s status=%s duration_ms=%.1f key_id=%s",
                 request.method,
                 route_label,
                 status,
                 elapsed * 1000,
+                getattr(request.state, "key_id", "-"),
             )
 
 
@@ -165,7 +192,7 @@ STUDY_COLUMNS = "id, code, display_name, phase, therapeutic_area, created_at"
 REFERRAL_COLUMNS = "id, study_id, candidate_ref, site_code, status, created_at, updated_at"
 
 
-@app.post("/studies", response_model=StudyOut, status_code=201)
+@api.post("/studies", response_model=StudyOut, status_code=201)
 def create_study(study: StudyIn) -> dict:
     try:
         with engine.begin() as conn:
@@ -191,7 +218,7 @@ def create_study(study: StudyIn) -> dict:
     return dict(row)
 
 
-@app.get("/studies", response_model=list[StudyOut])
+@api.get("/studies", response_model=list[StudyOut])
 def list_studies(limit: int = 50) -> list[dict]:
     limit = max(1, min(limit, 200))
     with engine.connect() as conn:
@@ -202,7 +229,7 @@ def list_studies(limit: int = 50) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-@app.get("/studies/{study_id}", response_model=StudyOut)
+@api.get("/studies/{study_id}", response_model=StudyOut)
 def get_study(study_id: int) -> dict:
     with engine.connect() as conn:
         row = conn.execute(
@@ -213,7 +240,7 @@ def get_study(study_id: int) -> dict:
     return dict(row)
 
 
-@app.post("/studies/{study_id}/referrals", response_model=ReferralOut, status_code=201)
+@api.post("/studies/{study_id}/referrals", response_model=ReferralOut, status_code=201)
 def create_referral(study_id: int, referral: ReferralIn) -> dict:
     now = datetime.now(timezone.utc)
     with engine.begin() as conn:
@@ -239,7 +266,7 @@ def create_referral(study_id: int, referral: ReferralIn) -> dict:
     return dict(row)
 
 
-@app.patch("/referrals/{referral_id}", response_model=ReferralOut)
+@api.patch("/referrals/{referral_id}", response_model=ReferralOut)
 def change_status(referral_id: int, change: StatusChange) -> dict:
     with engine.begin() as conn:
         current = conn.execute(
@@ -263,7 +290,7 @@ def change_status(referral_id: int, change: StatusChange) -> dict:
     return dict(row)
 
 
-@app.get("/studies/{study_id}/funnel")
+@api.get("/studies/{study_id}/funnel")
 def funnel(study_id: int) -> dict:
     """Recruitment funnel: how many referrals sit in each status."""
     with engine.connect() as conn:
@@ -277,3 +304,6 @@ def funnel(study_id: int) -> dict:
     counts = {status: 0 for status in ALLOWED_TRANSITIONS}
     counts.update({status: n for status, n in rows})
     return {"study_id": study_id, "funnel": counts, "total": sum(counts.values())}
+
+
+app.include_router(api)

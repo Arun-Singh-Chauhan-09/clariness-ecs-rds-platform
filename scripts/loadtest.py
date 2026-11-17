@@ -8,11 +8,14 @@ import argparse
 import collections
 import hashlib
 import json
+import os
 import random
 import threading
 import time
 import urllib.error
 import urllib.request
+
+HEADERS = {"X-API-Key": os.environ.get("API_KEY", "")}
 
 
 def worker(base, deadline, results, lock, study_ids, study_writes):
@@ -24,7 +27,7 @@ def worker(base, deadline, results, lock, study_ids, study_writes):
                 f"{base}/studies",
                 method="POST",
                 data=json.dumps({"code": code, "display_name": "Load test study", "phase": "II"}).encode(),
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", **HEADERS},
             )
         elif random.random() < 0.2:
             ref = hashlib.sha256(random.randbytes(16)).hexdigest()[:32]
@@ -32,11 +35,11 @@ def worker(base, deadline, results, lock, study_ids, study_writes):
                 f"{base}/studies/{study_id}/referrals",
                 method="POST",
                 data=json.dumps({"candidate_ref": ref, "site_code": "DE-104"}).encode(),
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", **HEADERS},
             )
         else:
             path = random.choice(["/studies", f"/studies/{study_id}", f"/studies/{study_id}/funnel"])
-            req = urllib.request.Request(base + path)
+            req = urllib.request.Request(base + path, headers=HEADERS)
         start = time.perf_counter()
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
@@ -63,7 +66,7 @@ def main():
     args = p.parse_args()
     base = args.base_url.rstrip("/")
 
-    with urllib.request.urlopen(f"{base}/studies", timeout=10) as resp:
+    with urllib.request.urlopen(urllib.request.Request(f"{base}/studies", headers=HEADERS), timeout=10) as resp:
         study_ids = [s["id"] for s in json.loads(resp.read())]
     if not study_ids:
         raise SystemExit("No studies yet: run scripts/seed.py first")

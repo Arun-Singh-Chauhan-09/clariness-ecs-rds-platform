@@ -2,7 +2,7 @@
 
 ## Scenario
 A developer "just renames" `studies.title` to `studies.name`
-(`drills/unsafe_0003_rename_title.py`). The release that is still running
+(`drills/unsafe_9001_rename_title.py`). The release that is still running
 inserts into `title`.
 
 ## Hypothesis
@@ -29,6 +29,8 @@ Open a PR containing the bad migration: the `ci` workflow must fail at
 Expand/contract (see `docs/runbooks/db-migrations.md`) and the CI guard.
 
 ## Observed: local run, 2026-11-17 (docker compose)
+
+_At the time of this run the unsafe migration was revision `0003`. It is now `9001`, because `0003` became the least-privilege database role migration; the drill works the same way._
 
 | Time (CET) | Event |
 |---|---|

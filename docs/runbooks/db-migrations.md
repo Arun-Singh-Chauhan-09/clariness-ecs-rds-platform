@@ -15,7 +15,7 @@ A breaking change (rename, drop, type change, new NOT NULL) is split over releas
 | N+1 (contract) | drop the old column | writes/reads new only |
 
 Example in this repo: `title` -> `display_name`.
-`0002_expand_add_display_name.py` is release N. `migrations/pending/0003_contract_drop_title.py`
+`0002_expand_add_display_name.py` is release N. `migrations/pending/0004_contract_drop_title.py`
 is release N+1. It stays out of `versions/` until no task reads `title` any more.
 
 ## Guard rails in the pipeline

@@ -28,6 +28,7 @@ jobs:
           --health-cmd "pg_isready -U referrals" --health-interval 3s --health-retries 20
     env:
       DATABASE_URL: postgresql+psycopg://referrals:referrals@localhost:5432/referrals_test
+      APP_DB_PASSWORD: ci-app-password   # lets the least-privilege test log in as referrals_app
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -46,6 +47,18 @@ jobs:
         run: pytest -q
       - name: Guard tests
         run: pytest -q scripts/tests
+
+  secrets:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # scan the whole history, not just the last commit
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" --entrypoint sh zricethezav/gitleaks:latest -c \
+            "git config --global --add safe.directory /repo && gitleaks detect --source /repo --no-banner --redact --exit-code 1"
 
   image:
     name: build + scan image
@@ -98,9 +111,9 @@ jobs:
         run: make tf-validate
       - uses: terraform-linters/setup-tflint@v4
       - run: tflint --init && tflint --recursive --config "$PWD/.tflint.hcl"
-      - name: Checkov (report only; triaged skips in .checkov.yaml)
+      - name: Checkov (blocking; each skip in .checkov.yaml has a written reason)
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: terraform
           config_file: .checkov.yaml
-          soft_fail: true
+          soft_fail: false

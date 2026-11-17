@@ -64,3 +64,8 @@ output "grafana_admin_secret_arn" {
   description = "aws secretsmanager get-secret-value --secret-id <this> to log in as admin."
   value       = module.observability.grafana_admin_secret_arn
 }
+
+output "api_keys_secret_arn" {
+  description = "Secret with the API key(s). Smoke test and drills read it: aws secretsmanager get-secret-value --secret-id <this>."
+  value       = aws_secretsmanager_secret.api_keys.arn
+}

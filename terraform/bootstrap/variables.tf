@@ -19,3 +19,15 @@ variable "create_github_oidc_provider" {
   type        = bool
   default     = true
 }
+
+variable "dr_region" {
+  description = "DR region (backup replication). The deploy role may act only in region and dr_region."
+  type        = string
+  default     = "eu-west-1"
+}
+
+variable "enable_account_security_baseline" {
+  description = "Create a multi-region CloudTrail trail and enable GuardDuty (turn off if your AWS Organization already does this)."
+  type        = bool
+  default     = true
+}

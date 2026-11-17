@@ -7,13 +7,13 @@ fails and ECS rolls back to the old one).
 
 See docs/drills/01-unsafe-migration.md.
 
-Revision ID: 0003
-Revises: 0002
+Revision ID: 9001
+Revises: 0003
 """
 from alembic import op
 
-revision = "0003"
-down_revision = "0002"
+revision = "9001"
+down_revision = "0003"
 branch_labels = None
 depends_on = None
 
