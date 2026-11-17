@@ -2,10 +2,27 @@ data "aws_region" "dr" {
   provider = aws.dr
 }
 
+data "aws_caller_identity" "current" {}
+
+# Explicit key policy (same effect as the AWS default: the account administers
+# the key through IAM; RDS and Secrets Manager use it via grants).
+data "aws_iam_policy_document" "kms" {
+  statement {
+    sid       = "AccountAdministration"
+    actions   = ["kms:*"]
+    resources = ["*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+}
+
 resource "aws_kms_key" "rds" {
   description             = "${var.identifier}: storage, snapshots and master secret"
   enable_key_rotation     = true
   deletion_window_in_days = 7
+  policy                  = data.aws_iam_policy_document.kms.json
 }
 
 resource "aws_kms_alias" "rds" {
@@ -92,6 +109,10 @@ resource "aws_db_instance" "this" {
   iam_database_authentication_enabled = true
   enabled_cloudwatch_logs_exports     = ["postgresql", "upgrade"]
 
+  # OS-level metrics (CPU steal, memory, I/O per process) every 60 s.
+  monitoring_interval = var.enhanced_monitoring_interval
+  monitoring_role_arn = var.enhanced_monitoring_interval > 0 ? aws_iam_role.monitoring[0].arn : null
+
   tags = { Name = var.identifier }
 }
 
@@ -104,6 +125,7 @@ resource "aws_kms_key" "dr" {
   description             = "${var.identifier}: replicated backups"
   enable_key_rotation     = true
   deletion_window_in_days = 7
+  policy                  = data.aws_iam_policy_document.kms.json
 }
 
 resource "aws_db_instance_automated_backups_replication" "dr" {
@@ -160,4 +182,27 @@ resource "aws_cloudwatch_metric_alarm" "db" {
   treat_missing_data  = "missing"
   alarm_actions       = [var.alarm_sns_topic_arn]
   ok_actions          = [var.alarm_sns_topic_arn]
+}
+
+# --- Enhanced monitoring --------------------------------------------------------------
+data "aws_iam_policy_document" "monitoring_trust" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["monitoring.rds.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "monitoring" {
+  count              = var.enhanced_monitoring_interval > 0 ? 1 : 0
+  name               = "${var.identifier}-rds-monitoring"
+  assume_role_policy = data.aws_iam_policy_document.monitoring_trust.json
+}
+
+resource "aws_iam_role_policy_attachment" "monitoring" {
+  count      = var.enhanced_monitoring_interval > 0 ? 1 : 0
+  role       = aws_iam_role.monitoring[0].name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
 }

@@ -5,6 +5,13 @@ useDefault = true
 
 [allowlist]
 description = "Local docker compose and CI test credentials, documented as non-secret"
+# Exact throwaway values used by docker compose, CI and the README examples.
+regexes = [
+  '''local-dev-key-change-me''',
+  '''local-app-password''',
+  '''ci-app-password''',
+  '''test-key-0123456789abcdef''',
+]
 paths = [
   '''docker-compose\.yml''',
   '''\.github/workflows/ci\.yml''',

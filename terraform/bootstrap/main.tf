@@ -50,6 +50,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "state" {
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
   }
 }
 
@@ -302,6 +305,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {
     }
     noncurrent_version_expiration {
       noncurrent_days = 30
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
     }
   }
 }

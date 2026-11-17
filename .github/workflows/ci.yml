@@ -58,7 +58,7 @@ jobs:
       - name: gitleaks
         run: |
           docker run --rm -v "$PWD:/repo" --entrypoint sh zricethezav/gitleaks:latest -c \
-            "git config --global --add safe.directory /repo && gitleaks detect --source /repo --no-banner --redact --exit-code 1"
+            "git config --global --add safe.directory /repo && gitleaks detect --source /repo --no-banner --redact --verbose --exit-code 1"
 
   image:
     name: build + scan image

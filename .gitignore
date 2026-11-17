@@ -23,3 +23,6 @@ __pycache__/
 
 # Lock files: commit for root configs (bootstrap, envs), not for reusable modules
 terraform/modules/**/.terraform.lock.hcl
+
+# Local CI log dumps
+ci-fail.txt

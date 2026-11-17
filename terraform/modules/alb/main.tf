@@ -183,15 +183,6 @@ resource "aws_lb_listener_rule" "block_internal_paths" {
 }
 
 # --- WAF ---------------------------------------------------------------------------------
-locals {
-  waf_managed_rules = {
-    AWSManagedRulesCommonRuleSet          = 10
-    AWSManagedRulesKnownBadInputsRuleSet  = 20
-    AWSManagedRulesSQLiRuleSet            = 30
-    AWSManagedRulesAmazonIpReputationList = 40
-  }
-}
-
 resource "aws_wafv2_web_acl" "this" {
   count = var.waf_enabled ? 1 : 0
   name  = "${var.name}-waf"
@@ -220,25 +211,80 @@ resource "aws_wafv2_web_acl" "this" {
     }
   }
 
-  dynamic "rule" {
-    for_each = local.waf_managed_rules
-    content {
-      name     = rule.key
-      priority = rule.value
-      override_action {
-        none {}
+  # AWS managed rule groups. KnownBadInputs includes the Log4j (CVE-2021-44228) rules.
+  rule {
+    name     = "AWSManagedRulesCommonRuleSet"
+    priority = 10
+    override_action {
+      none {}
+    }
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesCommonRuleSet"
+        vendor_name = "AWS"
       }
-      statement {
-        managed_rule_group_statement {
-          name        = rule.key
-          vendor_name = "AWS"
-        }
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.name}-AWSManagedRulesCommonRuleSet"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  rule {
+    name     = "AWSManagedRulesKnownBadInputsRuleSet"
+    priority = 20
+    override_action {
+      none {}
+    }
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesKnownBadInputsRuleSet"
+        vendor_name = "AWS"
       }
-      visibility_config {
-        cloudwatch_metrics_enabled = true
-        metric_name                = "${var.name}-${rule.key}"
-        sampled_requests_enabled   = true
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.name}-AWSManagedRulesKnownBadInputsRuleSet"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  rule {
+    name     = "AWSManagedRulesSQLiRuleSet"
+    priority = 30
+    override_action {
+      none {}
+    }
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesSQLiRuleSet"
+        vendor_name = "AWS"
       }
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.name}-AWSManagedRulesSQLiRuleSet"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  rule {
+    name     = "AWSManagedRulesAmazonIpReputationList"
+    priority = 40
+    override_action {
+      none {}
+    }
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesAmazonIpReputationList"
+        vendor_name = "AWS"
+      }
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.name}-AWSManagedRulesAmazonIpReputationList"
+      sampled_requests_enabled   = true
     }
   }
 

@@ -36,3 +36,8 @@ skip-check:
   - CKV_AWS_289    # see CKV_AWS_109
   - CKV_AWS_288    # data exfiltration without constraints: deploy role reads its own secrets for the smoke test
   - CKV_AWS_287    # credentials exposure without constraints: see CKV_AWS_288
+  - CKV_AWS_378    # ALB -> task traffic is HTTP inside private subnets (SG allows only the ALB); TLS terminates at the ALB. End-to-end TLS would need certificates in every task
+  - CKV_AWS_260    # The ALB is the public entry point: port 80 must be open to the internet (it redirects to HTTPS when a certificate is set)
+  - CKV_AWS_394    # AZs are sliced to az_count from a sorted list; a new AZ does not change which AZs are used
+  - CKV2_AWS_3     # GuardDuty is enabled for this account/region; organization-wide delegation is out of scope for a single account
+  - CKV2_AWS_76    # The ALB's web ACL does include AWSManagedRulesKnownBadInputsRuleSet (Log4j; CKV_AWS_192 passes on the ACL itself). This graph check cannot follow the optional, count-based association (waf_enabled)

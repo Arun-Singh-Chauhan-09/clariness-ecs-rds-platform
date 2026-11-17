@@ -17,13 +17,20 @@ resource "aws_security_group" "obs" {
   tags        = { Name = "${var.name}-obs" }
 }
 
+# Only the four component ports, not a port range.
 resource "aws_vpc_security_group_ingress_rule" "self" {
+  for_each = {
+    grafana      = 3000
+    loki         = 3100
+    prometheus   = 9090
+    alertmanager = 9093
+  }
   security_group_id            = aws_security_group.obs.id
-  description                  = "Components of the observability stack"
+  description                  = "Observability stack: ${each.key}"
   referenced_security_group_id = aws_security_group.obs.id
   ip_protocol                  = "tcp"
-  from_port                    = 3000
-  to_port                      = 9093
+  from_port                    = each.value
+  to_port                      = each.value
 }
 
 resource "aws_vpc_security_group_ingress_rule" "loki_push" {
@@ -50,6 +57,13 @@ resource "aws_s3_bucket_public_access_block" "loki" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_versioning" "loki" {
+  bucket = aws_s3_bucket.loki.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "loki" {
   bucket = aws_s3_bucket.loki.id
   rule {
@@ -67,6 +81,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "loki" {
     filter {}
     expiration {
       days = var.loki_retention_days
+    }
+    noncurrent_version_expiration {
+      noncurrent_days = 1 # versioning guards against accidental overwrites only
     }
     abort_incomplete_multipart_upload {
       days_after_initiation = 1

@@ -113,3 +113,9 @@ variable "max_connections_alarm_threshold" {
   type        = number
   default     = 60
 }
+
+variable "enhanced_monitoring_interval" {
+  description = "Seconds between Enhanced Monitoring samples (0 disables). 60 is the cheapest non-zero option."
+  type        = number
+  default     = 60
+}
