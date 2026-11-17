@@ -211,6 +211,15 @@ had passed (`SELECT 1`), so the database was reachable, yet the
 - **Lesson:** a migration step's exit code is not proof. Verify the resulting
   state, which the post-deploy smoke test now does through `/readyz`.
 
+### Another real one: the image scan blocked the first push
+The first CI run on GitHub failed at the Trivy scan: 4 fixable HIGH CVEs. Three
+were in Starlette 0.41.3 (pulled in by FastAPI 0.115: Range-header DoS, SSRF via
+UNC paths, form-size limits ignored) and one in Debian's zlib in the base image.
+Fix: upgraded FastAPI/Starlette/Pydantic (a Starlette major version, so the full
+test suite was re-run against Postgres before pinning) and added
+`apt-get upgrade` to the runtime image for Debian security fixes. The gate did
+its job: the vulnerable image never reached a registry.
+
 ---
 
 ## Repository layout
