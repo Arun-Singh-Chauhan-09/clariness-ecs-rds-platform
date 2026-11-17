@@ -23,6 +23,9 @@ env:
 
 jobs:
   build:
+    # Skipped until the AWS side is set up (bootstrap + repo variables), so the
+    # repo doesn't show a red run for every push before an AWS account is wired in.
+    if: ${{ vars.AWS_REGION != '' }}
     runs-on: ubuntu-latest
     environment: staging
     strategy:

@@ -1,5 +1,7 @@
 # clariness-ecs-rds-platform
 
+[![ci](https://github.com/Arun-Singh-Chauhan-09/clariness-ecs-rds-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/Arun-Singh-Chauhan-09/clariness-ecs-rds-platform/actions/workflows/ci.yml)
+
 A production-style AWS platform for a **clinical-trial referral API**: ECS
 Fargate, RDS PostgreSQL, Terraform modules, GitHub Actions with OIDC,
 Prometheus/Loki/Grafana/Alertmanager, and five failure drills with runbooks.
