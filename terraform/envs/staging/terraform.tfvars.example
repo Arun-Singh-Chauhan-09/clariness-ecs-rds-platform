@@ -1,0 +1,8 @@
+# cp terraform.tfvars.example terraform.tfvars
+alert_email        = "you@example.com"
+monthly_budget_usd = 100
+
+# Cost switches for a demo account (see README "Cost"):
+db_multi_az            = false # set true before running drill 03 (failover)
+db_cross_region_backup = true
+single_nat_gateway     = true

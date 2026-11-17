@@ -1,0 +1,107 @@
+# Local stack: the same app image and observability configs that run on ECS.
+#   make up      -> http://localhost:8000/docs (API)
+#                   http://localhost:3000      (Grafana, admin/admin)
+#                   http://localhost:9090      (Prometheus)
+#                   http://localhost:9093      (Alertmanager)
+name: referrals
+
+x-db-env: &db-env
+  DATABASE_URL: postgresql+psycopg://referrals:referrals@postgres:5432/referrals
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: referrals
+      POSTGRES_PASSWORD: referrals
+      POSTGRES_DB: referrals
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/local/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U referrals"]
+      interval: 3s
+      retries: 20
+
+  migrate:
+    build: ./app
+    command: ["alembic", "upgrade", "head"]
+    environment: *db-env
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    build: ./app
+    environment:
+      # API_DATABASE_URL lets drill 04 start the API against a wrong database.
+      DATABASE_URL: ${API_DATABASE_URL:-postgresql+psycopg://referrals:referrals@postgres:5432/referrals}
+      APP_VERSION: ${APP_VERSION:-local}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      fluent-bit: { condition: service_started }
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: localhost:24224
+        fluentd-async: "true"
+        tag: referrals-api
+
+  fluent-bit:
+    image: fluent/fluent-bit:3.1.9
+    command: ["/fluent-bit/bin/fluent-bit", "-c", "/fluent-bit/etc/local.conf"]
+    volumes:
+      - ./observability/fluent-bit/fluent-bit.local.conf:/fluent-bit/etc/local.conf:ro
+    ports: ["24224:24224"]
+    depends_on: [loki]
+
+  loki:
+    build: ./observability/loki
+    command: ["-config.file=/etc/loki/loki.local.yaml"]
+    ports: ["3100:3100"]
+
+  prometheus:
+    build: ./observability/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.local.yml
+      - --storage.tsdb.retention.time=2d
+      - --web.enable-lifecycle
+    ports: ["9090:9090"]
+
+  alertmanager:
+    build: ./observability/alertmanager
+    environment:
+      ALERTMANAGER_MODE: local
+    ports: ["9093:9093"]
+
+  alert-sink:
+    image: python:3.12-alpine
+    command:
+      - python
+      - -c
+      - |
+        import http.server, json
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                for a in body.get("alerts", []):
+                    print(f"[{a['status'].upper()}] {a['labels'].get('alertname')} - {a['annotations'].get('summary')}", flush=True)
+                self.send_response(200); self.end_headers()
+            def log_message(self, *args):
+                pass
+        http.server.HTTPServer(("0.0.0.0", 8080), H).serve_forever()
+
+  grafana:
+    build: ./observability/grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      PROMETHEUS_URL: http://prometheus:9090
+      LOKI_URL: http://loki:3100
+      ALERTMANAGER_URL: http://alertmanager:9093
+    ports: ["3000:3000"]
+    depends_on: [prometheus, loki]
+
+volumes:
+  pgdata:

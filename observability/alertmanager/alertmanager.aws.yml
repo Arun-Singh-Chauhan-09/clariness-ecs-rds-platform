@@ -1,0 +1,27 @@
+route:
+  receiver: sns
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+inhibit_rules:
+  - source_matchers: [severity="critical"]
+    target_matchers: [severity="warning"]
+    equal: [alertname]
+
+receivers:
+  # Publishes to the same SNS topic as the CloudWatch alarms; the task role
+  # allows sns:Publish on that topic only. Credentials come from the ECS task role.
+  - name: sns
+    sns_configs:
+      - topic_arn: __SNS_TOPIC_ARN__
+        sigv4:
+          region: __AWS_REGION__
+        send_resolved: true
+        subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} ({{ .CommonLabels.severity }})'
+        message: |
+          {{ range .Alerts }}{{ .Annotations.summary }}
+          Runbook: {{ .Annotations.runbook }}
+          Started: {{ .StartsAt }}
+          {{ end }}

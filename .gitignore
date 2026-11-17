@@ -1,0 +1,25 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+plan.txt
+crash.log
+terraform.tfvars
+backend.hcl
+.terraform.lock.hcl.bak
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+
+# Local
+.env
+.DS_Store
+
+# Lock files: commit for root configs (bootstrap, envs), not for reusable modules
+terraform/modules/**/.terraform.lock.hcl

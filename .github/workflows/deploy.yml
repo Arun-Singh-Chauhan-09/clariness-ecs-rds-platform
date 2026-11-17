@@ -1,0 +1,88 @@
+name: deploy
+
+# GitOps-style delivery for ECS: the main branch is the desired state.
+# Merge -> build images tagged with the commit SHA -> run DB migrations ->
+# terraform apply with that tag (waits for the ECS deployment; the circuit
+# breaker rolls back failed releases and fails this job) -> smoke test.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false   # never interrupt a deployment half-way
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  TAG: ${{ github.sha }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: staging
+    strategy:
+      matrix:
+        include:
+          - { repo: referrals-api,          context: app }
+          - { repo: referrals-fluent-bit,   context: observability/fluent-bit }
+          - { repo: referrals-prometheus,   context: observability/prometheus }
+          - { repo: referrals-alertmanager, context: observability/alertmanager }
+          - { repo: referrals-loki,         context: observability/loki }
+          - { repo: referrals-grafana,      context: observability/grafana }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push ${{ matrix.repo }}:${{ env.TAG }}
+        run: |
+          IMAGE="${{ steps.ecr.outputs.registry }}/${{ matrix.repo }}:$TAG"
+          docker build -t "$IMAGE" "${{ matrix.context }}"
+          docker push "$IMAGE"
+
+  migrate-and-deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    defaults:
+      run:
+        working-directory: terraform/envs/staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ env.AWS_REGION }}"
+
+      - name: 1. Migrate (expand) before new code is deployed
+        run: |
+          REGISTRY="$(terraform output -raw ecr_registry)"
+          ../../../scripts/run-migration.sh "$REGISTRY/referrals-api:$TAG"
+
+      - name: 2. Apply desired state (waits for steady state)
+        run: terraform apply -input=false -auto-approve -var "image_tag=$TAG" -var "alert_email=${{ vars.ALERT_EMAIL }}"
+
+      - name: 3. Smoke test
+        run: ../../../scripts/smoke-test.sh "$(terraform output -raw api_base_url)" "$TAG"
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          {
+            echo "### Deploy ${TAG:0:7} -> staging: ${{ job.status }}"
+            echo "- API: $(terraform output -raw api_base_url 2>/dev/null || echo n/a)"
+            echo "- If this failed at step 2, ECS rolled the service back to the previous task definition."
+          } >> "$GITHUB_STEP_SUMMARY"

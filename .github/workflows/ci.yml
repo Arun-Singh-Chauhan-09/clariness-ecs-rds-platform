@@ -1,0 +1,105 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: app tests + migration guard
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: referrals
+          POSTGRES_PASSWORD: referrals
+          POSTGRES_DB: referrals_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U referrals" --health-interval 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+psycopg://referrals:referrals@localhost:5432/referrals_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+      - run: pip install -r app/requirements-dev.txt
+      - name: Lint
+        working-directory: app
+        run: ruff check src tests ../scripts
+      - name: Block unsafe migrations (expand/contract guard)
+        run: python scripts/check_migrations.py app/migrations/versions
+      - name: Tests (real Postgres)
+        working-directory: app
+        run: pytest -q
+      - name: Guard tests
+        run: pytest -q scripts/tests
+
+  image:
+    name: build + scan image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t referrals-api:ci app
+      - name: Trivy (fail on fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: referrals-api:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  observability:
+    name: prometheus / alertmanager config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: promtool check config (local + aws)
+        run: |
+          for cfg in prometheus.local.yml prometheus.aws.yml; do
+            docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus" --entrypoint promtool \
+              prom/prometheus:v2.55.1 check config "/etc/prometheus/$cfg"
+          done
+      - name: Alert rule unit tests
+        run: |
+          docker run --rm -v "$PWD/observability/prometheus:/p" --entrypoint promtool \
+            prom/prometheus:v2.55.1 test rules /p/tests/alerts_test.yml
+      - name: amtool check-config
+        run: |
+          sed -e 's|__SNS_TOPIC_ARN__|arn:aws:sns:eu-central-1:123456789012:test|' -e 's|__AWS_REGION__|eu-central-1|' \
+            observability/alertmanager/alertmanager.aws.yml > /tmp/alertmanager.aws.yml
+          for cfg in "$PWD/observability/alertmanager/alertmanager.local.yml" /tmp/alertmanager.aws.yml; do
+            docker run --rm -v "$cfg:/cfg.yml" --entrypoint amtool prom/alertmanager:v0.27.0 check-config /cfg.yml
+          done
+
+  terraform:
+    name: terraform fmt / validate / lint / scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+      - run: terraform fmt -check -recursive -diff terraform
+      - name: validate every root and module (same list as `make tf-validate`)
+        run: make tf-validate
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --init && tflint --recursive --config "$PWD/.tflint.hcl"
+      - name: Checkov (report only; triaged skips in .checkov.yaml)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform
+          config_file: .checkov.yaml
+          soft_fail: true

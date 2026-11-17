@@ -1,0 +1,2 @@
+state_bucket_name = "referrals-tfstate-<your-account-id>"
+github_repository = "Arun-Singh-Chauhan-09/clariness-ecs-rds-platform"

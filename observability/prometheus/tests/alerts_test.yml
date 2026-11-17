@@ -1,0 +1,52 @@
+# Run: promtool test rules observability/prometheus/tests/alerts_test.yml
+rule_files:
+  - ../rules/alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="referrals-api", instance="api:8000"}'
+        values: "0x10"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ApiTargetDown
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: ApiTargetDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: referrals-api
+              instance: "api:8000"
+            exp_annotations:
+              summary: "An API task is not answering Prometheus scrapes"
+              runbook: "docs/runbooks/incident-response.md#apitargetdown"
+
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="referrals-api", method="POST", route="/studies", status="500"}'
+        values: "0+10x20"
+      - series: 'http_requests_total{job="referrals-api", method="POST", route="/studies", status="201"}'
+        values: "0+10x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ApiHigh5xxRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "More than 5% of API requests are failing with 5xx"
+              runbook: "docs/runbooks/incident-response.md#apihigh5xxrate"
+
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="referrals-api", method="GET", route="/studies", status="200"}'
+        values: "0+100x20"
+      - series: 'http_requests_total{job="referrals-api", method="GET", route="/studies", status="503"}'
+        values: "0+1x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ApiHigh5xxRate
+        exp_alerts: []

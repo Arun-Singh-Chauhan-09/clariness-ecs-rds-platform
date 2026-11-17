@@ -1,0 +1,60 @@
+name: terraform-plan
+
+# Every pull request gets the staging plan as a PR comment, so infrastructure
+# changes are reviewed as code before they are merged.
+on:
+  pull_request:
+    paths: ["terraform/**", ".github/workflows/terraform-plan.yml"]
+
+permissions:
+  id-token: write       # OIDC -> AWS, no stored keys
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/envs/staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
+      - name: Plan with the image tag currently deployed (infra-only diff)
+        id: plan
+        run: |
+          TAG="$(../../../scripts/current-image-tag.sh 2>/dev/null || echo bootstrap)"
+          set +e
+          terraform plan -input=false -no-color -lock=false \
+            -var "image_tag=$TAG" -var "alert_email=${{ vars.ALERT_EMAIL }}" > plan.txt 2>&1
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          grep -E '^Plan:|^No changes' plan.txt > summary.txt || echo "Plan failed, see details" > summary.txt
+      - name: Comment plan on the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "### Terraform plan: staging"
+            echo
+            echo "**$(cat summary.txt)**"
+            echo
+            echo "<details><summary>Full plan</summary>"
+            echo
+            echo '```'
+            tail -c 60000 plan.txt
+            echo '```'
+            echo "</details>"
+          } > comment.md
+          gh pr comment ${{ github.event.pull_request.number }} --edit-last --body-file comment.md \
+            || gh pr comment ${{ github.event.pull_request.number }} --body-file comment.md
+      - if: steps.plan.outputs.exit != '0'
+        run: echo "terraform plan failed" && exit 1

@@ -1,0 +1,13 @@
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "BLE"]
+# Keep timezone.utc: tests also run on Ubuntu 22.04 (Python 3.10), where datetime.UTC does not exist.
+ignore = ["UP017"]

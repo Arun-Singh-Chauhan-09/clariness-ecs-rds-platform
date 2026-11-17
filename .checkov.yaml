@@ -1,0 +1,25 @@
+# Checkov runs report-only in CI. Each skip below was reviewed; the reason is
+# next to it. Anything new shows up in the CI log for triage.
+framework: [terraform]
+skip-check:
+  - CKV_AWS_158    # CloudWatch log groups use AWS-managed encryption; no PHI is logged (synthetic data)
+  - CKV_AWS_338    # 14-day log retention is deliberate for staging (cost)
+  - CKV_AWS_91     # ALB access logs: off in staging; enable with an S3 bucket in production
+  - CKV_AWS_2      # HTTP listener is allowed when no ACM certificate is configured (demo); with certificate_arn it redirects to HTTPS
+  - CKV_AWS_103    # see CKV_AWS_2
+  - CKV2_AWS_20    # see CKV_AWS_2
+  - CKV_AWS_150    # ALB deletion protection is a variable, off for the staging demo
+  - CKV2_AWS_28    # WAF in front of the ALB: out of scope for the demo
+  - CKV_AWS_144    # S3 cross-region replication: state bucket is versioned; Loki chunks are disposable
+  - CKV_AWS_18     # S3 access logging: not needed for state/log buckets in staging
+  - CKV2_AWS_62    # S3 event notifications: not needed
+  - CKV_AWS_145    # Loki bucket uses SSE-S3 (log chunks of synthetic data)
+  - CKV2_AWS_57    # Grafana admin secret rotation: manual for now; the RDS master secret is rotated by RDS
+  - CKV_AWS_149    # Grafana admin secret uses the AWS-managed Secrets Manager key
+  - CKV_AWS_353    # RDS Performance Insights: not available on db.t4g.micro
+  - CKV_AWS_354    # see CKV_AWS_353
+  - CKV_AWS_157    # RDS Multi-AZ is a variable (on by default); demo tfvars may turn it off to save cost
+  - CKV_AWS_293    # RDS deletion protection: on by default in the module, off in staging so the demo can be destroyed
+  - CKV_AWS_336    # ECS read-only root filesystem: Grafana/Loki/Prometheus need writable paths
+  - CKV_AWS_136    # ECR uses KMS with the AWS-managed key
+  - CKV_AWS_51     # ECR tags ARE immutable; false positive on for_each repositories
