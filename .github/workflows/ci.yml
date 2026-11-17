@@ -53,13 +53,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t referrals-api:ci app
+      # Trivy runs from its container image rather than a marketplace action:
+      # one less third-party action to pin and trust in the pipeline.
       - name: Trivy (fail on fixable HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: referrals-api:ci
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --no-progress \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+            referrals-api:ci
 
   observability:
     name: prometheus / alertmanager config
