@@ -52,6 +52,8 @@ flowchart LR
   cwa[CloudWatch alarms<br/>ALB, RDS, budget] -->|SNS| mail
 ```
 
+Full write-up with deployment, alerting and recovery flows: **[docs/architecture.md](docs/architecture.md)**.
+
 ## How this maps to the role
 
 | The job asks for | Where it is |
@@ -235,6 +237,7 @@ terraform/envs/staging/   the environment, composed from the modules
 .github/workflows/        ci · terraform-plan · deploy · drift
 scripts/                  migration runner, smoke test, DR + failover drills, port-forward, load/seed
 drills/                   the deliberately unsafe migration used in drill 01
+docs/architecture.md      architecture: request, deploy, alerting and recovery flows
 docs/adr/                 architecture decisions and trade-offs
 docs/runbooks/            migrations, DR restore, alert response
 docs/drills/              drill plans and results
