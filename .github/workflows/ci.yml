@@ -30,8 +30,8 @@ jobs:
       DATABASE_URL: postgresql+psycopg://referrals:referrals@localhost:5432/referrals_test
       APP_DB_PASSWORD: ci-app-password   # lets the least-privilege test log in as referrals_app
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -52,7 +52,7 @@ jobs:
     name: secret scan (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # scan the whole history, not just the last commit
       - name: gitleaks
@@ -64,7 +64,7 @@ jobs:
     name: build + scan image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t referrals-api:ci app
       # Trivy runs from its container image rather than a marketplace action:
       # one less third-party action to pin and trust in the pipeline.
@@ -79,7 +79,7 @@ jobs:
     name: prometheus / alertmanager config
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: promtool check config (local + aws)
         run: |
           for cfg in prometheus.local.yml prometheus.aws.yml; do
@@ -102,14 +102,14 @@ jobs:
     name: terraform fmt / validate / lint / scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.10.5
       - run: terraform fmt -check -recursive -diff terraform
       - name: validate every root and module (same list as `make tf-validate`)
         run: make tf-validate
-      - uses: terraform-linters/setup-tflint@v4
+      - uses: terraform-linters/setup-tflint@v6
       - run: tflint --init && tflint --recursive --config "$PWD/.tflint.hcl"
       - name: Checkov (blocking; each skip in .checkov.yaml has a written reason)
         uses: bridgecrewio/checkov-action@v12
